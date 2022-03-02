@@ -91,6 +91,7 @@ _C.TRAIN.CHECKPOINT = ''
 
 _C.TRAIN.BATCH_SIZE_PER_GPU = 32
 _C.TRAIN.SHUFFLE = True
+_C.TRAIN.TAG_LOSS = False
 
 # testing
 _C.TEST = CN()

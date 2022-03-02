@@ -31,19 +31,24 @@ def train(config, train_loader, model, criterion, optimizer, epoch,
     losses = AverageMeter()
     acc = AverageMeter()
 
+    criterion_tag = None
+    if config.TRAIN.TAG_LOSS:
+        criterion_tag = torch.nn.CrossEntropyLoss()
+
     # switch to train mode
     model.train()
 
     end = time.time()
-    for i, (input, target, target_weight, meta) in enumerate(train_loader):
+    for i, (input, target, target_weight, meta, target_tags) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
 
         # compute output
-        outputs = model(input)
+        outputs, tags = model(input)
 
         target = target.cuda(non_blocking=True)
         target_weight = target_weight.cuda(non_blocking=True)
+        target_tags = target_tags.cuda(non_blocking=True)
 
         if isinstance(outputs, list):
             loss = criterion(outputs[0], target, target_weight)
@@ -52,6 +57,9 @@ def train(config, train_loader, model, criterion, optimizer, epoch,
         else:
             output = outputs
             loss = criterion(output, target, target_weight)
+
+        if config.TRAIN.TAG_LOSS and criterion_tag is not None:
+            loss = 0.5*loss + 0.5*criterion_tag(tags, target_tags)
 
         # loss = criterion(output, target, target_weight)
 
@@ -92,7 +100,6 @@ def train(config, train_loader, model, criterion, optimizer, epoch,
             prefix = '{}_{}'.format(os.path.join(output_dir, 'train'), i)
             save_debug_images(config, input, meta, target, pred*4, output,
                               prefix)
-
 
 def validate(config, val_loader, val_dataset, model, criterion, output_dir,
              tb_log_dir, writer_dict=None):
