@@ -250,12 +250,16 @@ class HighResolutionModule(nn.Module):
 
         for i in range(self.num_branches):
             x[i] = self.branches[i](x[i])
+            # print(f"Branch {i}: ", x[i].shape)
 
         x_fuse = []
+
+        # print(f"Num of fuse layers: {len(self.fuse_layers)}")
 
         for i in range(len(self.fuse_layers)):
             y = x[0] if i == 0 else self.fuse_layers[i][0](x[0])
             for j in range(1, self.num_branches):
+                # print(self.fuse_layers[i][j])
                 if i == j:
                     y = y + x[j]
                 else:
@@ -277,6 +281,8 @@ class PoseHighResolutionNet(nn.Module):
         self.inplanes = 64
         extra = cfg.MODEL.EXTRA
         super(PoseHighResolutionNet, self).__init__()
+
+        self._num_joints = cfg['MODEL']['NUM_JOINTS']
 
         # stem net
         self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1,
@@ -326,6 +332,13 @@ class PoseHighResolutionNet(nn.Module):
             kernel_size=extra.FINAL_CONV_KERNEL,
             stride=1,
             padding=1 if extra.FINAL_CONV_KERNEL == 3 else 0
+        )
+
+        self.joint_cat_layer = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(cfg['MODEL']['HEATMAP_SIZE'][0]*cfg['MODEL']['HEATMAP_SIZE'][1]*pre_stage_channels[0], 1024),
+            nn.ReLU(),
+            nn.Linear(1024, cfg['MODEL']['NUM_JOINTS']*4)
         )
 
         self.pretrained_layers = cfg['MODEL']['EXTRA']['PRETRAINED_LAYERS']
@@ -439,6 +452,12 @@ class PoseHighResolutionNet(nn.Module):
                 x_list.append(x)
         y_list = self.stage2(x_list)
 
+        """ 
+        print("After Stage 2: ", len(y_list))
+        for i in range(len(y_list)):
+            print(f"{i}: ", y_list[i].shape)
+        """
+
         x_list = []
         for i in range(self.stage3_cfg['NUM_BRANCHES']):
             if self.transition2[i] is not None:
@@ -446,6 +465,12 @@ class PoseHighResolutionNet(nn.Module):
             else:
                 x_list.append(y_list[i])
         y_list = self.stage3(x_list)
+
+        """ 
+        print("After Stage 3: ", len(y_list))
+        for i in range(len(y_list)):
+            print(f"{i}: ", y_list[i].shape)
+         """
 
         x_list = []
         for i in range(self.stage4_cfg['NUM_BRANCHES']):
@@ -455,9 +480,21 @@ class PoseHighResolutionNet(nn.Module):
                 x_list.append(y_list[i])
         y_list = self.stage4(x_list)
 
+        """ 
+        print("After Stage 4: ", len(y_list))
+        for i in range(len(y_list)):
+            print(f"{i}: ", y_list[i].shape)
+         """
+
         x = self.final_layer(y_list[0])
 
-        return x
+        # print("Final Stage: ", x.shape)
+
+        x_tag = self.joint_cat_layer(y_list[0])
+        x_tag = x_tag.reshape(-1, x_tag.shape[-1]//self._num_joints, self._num_joints)
+        x_tag = nn.Softmax(dim=1)(x_tag)
+
+        return x, x_tag
 
     def init_weights(self, pretrained=''):
         logger.info('=> init weights from normal distribution')
@@ -484,7 +521,7 @@ class PoseHighResolutionNet(nn.Module):
             need_init_state_dict = {}
             for name, m in pretrained_state_dict.items():
                 if name.split('.')[0] in self.pretrained_layers \
-                   or self.pretrained_layers[0] is '*':
+                   or self.pretrained_layers[0] == '*':
                     need_init_state_dict[name] = m
             self.load_state_dict(need_init_state_dict, strict=False)
         elif pretrained:
