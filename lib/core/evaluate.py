@@ -70,4 +70,19 @@ def accuracy(output, target, hm_type='gaussian', thr=0.5):
         acc[0] = avg_acc
     return acc, avg_acc, cnt, pred
 
+def tag_accuracy(output, target):
 
+    output_max = np.argmax(output, axis=1)
+
+    #print(output_max[0, :])
+
+    avg_acc = 0
+
+    for i in range(target.shape[0]):
+        for j in range(target.shape[1]):
+            if target[i, j] == output_max[i, j]:
+                avg_acc += 1
+
+    #print(avg_acc/(target.shape[0]*target.shape[1]))
+
+    return avg_acc/(target.shape[0]*target.shape[1])

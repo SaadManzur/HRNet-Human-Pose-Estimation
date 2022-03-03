@@ -186,9 +186,6 @@ def main():
         train(cfg, train_loader, model, criterion, optimizer, epoch,
               final_output_dir, tb_log_dir, writer_dict)
 
-        break
-
-
         # evaluate on validation set
         perf_indicator = validate(
             cfg, valid_loader, valid_dataset, model, criterion,

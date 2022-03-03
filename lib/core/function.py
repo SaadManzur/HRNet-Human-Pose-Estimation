@@ -16,6 +16,7 @@ import numpy as np
 import torch
 
 from core.evaluate import accuracy
+from core.evaluate import tag_accuracy
 from core.inference import get_final_preds
 from utils.transforms import flip_back
 from utils.vis import save_debug_images
@@ -30,6 +31,7 @@ def train(config, train_loader, model, criterion, optimizer, epoch,
     data_time = AverageMeter()
     losses = AverageMeter()
     acc = AverageMeter()
+    tag_acc = AverageMeter()
 
     criterion_tag = None
     if config.TRAIN.TAG_LOSS:
@@ -73,7 +75,11 @@ def train(config, train_loader, model, criterion, optimizer, epoch,
 
         _, avg_acc, cnt, pred = accuracy(output.detach().cpu().numpy(),
                                          target.detach().cpu().numpy())
+        avg_tag_acc = tag_accuracy(tags.detach().cpu().numpy(),
+                                target_tags.detach().cpu().numpy())
+
         acc.update(avg_acc, cnt)
+        tag_acc.update(avg_tag_acc, 1)
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -85,10 +91,11 @@ def train(config, train_loader, model, criterion, optimizer, epoch,
                   'Speed {speed:.1f} samples/s\t' \
                   'Data {data_time.val:.3f}s ({data_time.avg:.3f}s)\t' \
                   'Loss {loss.val:.5f} ({loss.avg:.5f})\t' \
-                  'Accuracy {acc.val:.3f} ({acc.avg:.3f})'.format(
+                  'Accuracy {acc.val:.3f} ({acc.avg:.3f})\t' \
+                  'Tag Accuracy {tag_acc.val:.3f}'.format(
                       epoch, i, len(train_loader), batch_time=batch_time,
                       speed=input.size(0)/batch_time.val,
-                      data_time=data_time, loss=losses, acc=acc)
+                      data_time=data_time, loss=losses, acc=acc, tag_acc=tag_acc)
             logger.info(msg)
 
             writer = writer_dict['writer']
@@ -100,12 +107,14 @@ def train(config, train_loader, model, criterion, optimizer, epoch,
             prefix = '{}_{}'.format(os.path.join(output_dir, 'train'), i)
             save_debug_images(config, input, meta, target, pred*4, output,
                               prefix)
+        
 
 def validate(config, val_loader, val_dataset, model, criterion, output_dir,
              tb_log_dir, writer_dict=None):
     batch_time = AverageMeter()
     losses = AverageMeter()
     acc = AverageMeter()
+    tag_acc = AverageMeter()
 
     # switch to evaluate mode
     model.eval()
@@ -122,9 +131,9 @@ def validate(config, val_loader, val_dataset, model, criterion, output_dir,
     idx = 0
     with torch.no_grad():
         end = time.time()
-        for i, (input, target, target_weight, meta) in enumerate(val_loader):
+        for i, (input, target, target_weight, meta, target_tags) in enumerate(val_loader):
             # compute output
-            outputs = model(input)
+            outputs, tags = model(input)
             if isinstance(outputs, list):
                 output = outputs[-1]
             else:
@@ -164,8 +173,12 @@ def validate(config, val_loader, val_dataset, model, criterion, output_dir,
             losses.update(loss.item(), num_images)
             _, avg_acc, cnt, pred = accuracy(output.cpu().numpy(),
                                              target.cpu().numpy())
+            
+            avg_tag_acc = tag_accuracy(tags.detach().cpu().numpy(),
+                                    target_tags.detach().cpu().numpy())
 
             acc.update(avg_acc, cnt)
+            tag_acc.update(avg_tag_acc, 1)
 
             # measure elapsed time
             batch_time.update(time.time() - end)
@@ -193,9 +206,10 @@ def validate(config, val_loader, val_dataset, model, criterion, output_dir,
                 msg = 'Test: [{0}/{1}]\t' \
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t' \
                       'Loss {loss.val:.4f} ({loss.avg:.4f})\t' \
-                      'Accuracy {acc.val:.3f} ({acc.avg:.3f})'.format(
+                      'Accuracy {acc.val:.3f} ({acc.avg:.3f})\t' \
+                      'Tag Accuracy {tag_acc.val:.3f}'.format(
                           i, len(val_loader), batch_time=batch_time,
-                          loss=losses, acc=acc)
+                          loss=losses, acc=acc, tag_acc=tag_acc)
                 logger.info(msg)
 
                 prefix = '{}_{}'.format(
@@ -203,7 +217,7 @@ def validate(config, val_loader, val_dataset, model, criterion, output_dir,
                 )
                 save_debug_images(config, input, meta, target, pred*4, output,
                                   prefix)
-
+        
         name_values, perf_indicator = val_dataset.evaluate(
             config, all_preds, output_dir, all_boxes, image_path,
             filenames, imgnums

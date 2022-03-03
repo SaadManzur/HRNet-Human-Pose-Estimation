@@ -74,20 +74,22 @@ class H36MDataset(JointsDataset):
             key_count = len(list(file_.keys()))
 
             for _, key in tqdm(enumerate(file_), total=key_count):
-                entry = file_[key]
-                total_frames = len(entry["image_file_names"])
+                entry_2d = file_[key]["cropped_2d"][:]
+                entry_imgs = file_[key]["image_file_names"][:]
+                entry_bins = file_[key]["bins"][:]
+                total_frames = len(entry_imgs)
 
                 for i_frame in range(total_frames):
 
                     center, scale = self._box2cs((0, 0, 256, 256))
 
                     gt_db.append({
-                        "image": os.path.join(image_dir, entry["image_file_names"][i_frame].decode("utf-8")),
-                        "joints_3d": entry["cropped_2d"][i_frame][:],
+                        "image": os.path.join(image_dir, entry_imgs[i_frame].decode("utf-8")),
+                        "joints_3d": entry_2d[i_frame],
                         "center": center,
                         "scale": scale,
-                        "joints_3d_vis": np.ones_like(entry["cropped_2d"][i_frame][:]),
-                        "bins": entry["bins"][i_frame][:]
+                        "joints_3d_vis": np.ones_like(entry_2d[i_frame]),
+                        "bins": entry_bins[i_frame]
                     })
 
             file_.close()
@@ -136,39 +138,31 @@ class H36MDataset(JointsDataset):
         SC_BIAS = 0.6
         threshold = 0.5
 
-        gt_file = os.path.join(cfg.DATASET.ROOT,
-                               'annot',
-                               'gt_{}.mat'.format(cfg.DATASET.TEST_SET))
-        gt_dict = loadmat(gt_file)
-        dataset_joints = gt_dict['dataset_joints']
-        jnt_missing = gt_dict['jnt_missing']
-        pos_gt_src = gt_dict['pos_gt_src']
-        headboxes_src = gt_dict['headboxes_src']
+        jnt_missing = np.zeros((self.num_joints, preds.shape[0]))
+        pos_gt_src = np.vstack([self.db[i]["joints_3d"].reshape(-1, self.num_joints, 2) for i in range(len(self.db))])
+        pos_gt_src = pos_gt_src.transpose(1, 2, 0)
 
         pos_pred_src = np.transpose(preds, [1, 2, 0])
 
-        head = np.where(dataset_joints == 'head')[1][0]
-        lsho = np.where(dataset_joints == 'lsho')[1][0]
-        lelb = np.where(dataset_joints == 'lelb')[1][0]
-        lwri = np.where(dataset_joints == 'lwri')[1][0]
-        lhip = np.where(dataset_joints == 'lhip')[1][0]
-        lkne = np.where(dataset_joints == 'lkne')[1][0]
-        lank = np.where(dataset_joints == 'lank')[1][0]
+        head = 7
+        lsho = 8
+        lelb = 9
+        lwri = 10
+        lhip = 4
+        lkne = 5
+        lank = 6
 
-        rsho = np.where(dataset_joints == 'rsho')[1][0]
-        relb = np.where(dataset_joints == 'relb')[1][0]
-        rwri = np.where(dataset_joints == 'rwri')[1][0]
-        rkne = np.where(dataset_joints == 'rkne')[1][0]
-        rank = np.where(dataset_joints == 'rank')[1][0]
-        rhip = np.where(dataset_joints == 'rhip')[1][0]
+        rsho = 11
+        relb = 12
+        rwri = 13
+        rkne = 2
+        rank = 3
+        rhip = 0
 
         jnt_visible = 1 - jnt_missing
         uv_error = pos_pred_src - pos_gt_src
         uv_err = np.linalg.norm(uv_error, axis=1)
-        headsizes = headboxes_src[1, :, :] - headboxes_src[0, :, :]
-        headsizes = np.linalg.norm(headsizes, axis=0)
-        headsizes *= SC_BIAS
-        scale = np.multiply(headsizes, np.ones((len(uv_err), 1)))
+        scale = np.ones((len(uv_err), 1))
         scaled_uv_err = np.divide(uv_err, scale)
         scaled_uv_err = np.multiply(scaled_uv_err, jnt_visible)
         jnt_count = np.sum(jnt_visible, axis=1)
@@ -178,7 +172,7 @@ class H36MDataset(JointsDataset):
 
         # save
         rng = np.arange(0, 0.5+0.01, 0.01)
-        pckAll = np.zeros((len(rng), 16))
+        pckAll = np.zeros((len(rng), self.num_joints))
 
         for r in range(len(rng)):
             threshold = rng[r]
